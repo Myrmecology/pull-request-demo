@@ -8,7 +8,7 @@
         body {
             margin: 0;
             padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #130579 0%, #0f0767 100%);
             font-family: 'Arial', sans-serif;
             display: flex;
             justify-content: center;
@@ -176,16 +176,18 @@
             <div style="margin-top: 10px; font-size: 0.9em;">
                 🚀 Speed Boost • ⭐ Invincibility • 💎 Double Points • 🍎 Regular Food
             </div>
-            <div style="margin-top: 15px;">
-                <button onclick="resetGame()" style="font-size: 1.1em; padding: 12px 25px;">🔄 NEW GAME</button>
-                <button onclick="togglePause()">⏸️ Pause</button>
+            
+            <div style="margin-top: 20px; text-align: center;">
+                <button onclick="newGame()" style="font-size: 1.2em; padding: 15px 30px; background: linear-gradient(45deg, #4CAF50, #45a049); margin: 5px; display: inline-block;">🚀 NEW GAME</button>
+                <button onclick="resetGame()" style="font-size: 1em; padding: 10px 20px; margin: 5px; display: inline-block;">🔄 Reset</button>
+                <button onclick="togglePause()" style="font-size: 1em; padding: 10px 20px; margin: 5px; display: inline-block;">⏸️ Pause</button>
             </div>
         </div>
         
         <div class="game-over" id="gameOver">
             <h2>🎮 Game Over! 🎮</h2>
             <p id="finalScore"></p>
-            <button onclick="resetGame(); document.getElementById('gameOver').style.display='none';">🚀 Play Again</button>
+            <button onclick="newGame(); document.getElementById('gameOver').style.display='none';" style="font-size: 1.1em; padding: 12px 25px;">🚀 Play Again</button>
         </div>
     </div>
 
@@ -639,6 +641,45 @@
             
             // Draw initial state
             drawGame();
+        }
+        
+        function newGame() {
+            // Stop current game
+            gameRunning = false;
+            stopGameLoop();
+            
+            // Reset all game state
+            snake = [{x: 10, y: 10}];
+            dx = 1; // Start moving right immediately
+            dy = 0;
+            score = 0;
+            combo = 0;
+            gamePaused = false;
+            trail = [];
+            particles = [];
+            currentGameSpeed = baseGameSpeed;
+            lastGameUpdate = 0;
+            
+            // Reset power-ups
+            Object.keys(powerups).forEach(key => {
+                powerups[key].active = false;
+                powerups[key].timeLeft = 0;
+            });
+            
+            // Initialize audio if needed
+            initAudio();
+            
+            updateScore();
+            updatePowerupDisplay();
+            updateComboDisplay();
+            generateFood();
+            document.getElementById('gameOver').style.display = 'none';
+            
+            // Start new game immediately
+            gameRunning = true;
+            lastGameUpdate = Date.now();
+            showMessage('New game started! 🚀🐍');
+            gameLoop();
         }
         
         function togglePause() {
