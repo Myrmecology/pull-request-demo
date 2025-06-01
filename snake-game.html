@@ -176,8 +176,10 @@
             <div style="margin-top: 10px; font-size: 0.9em;">
                 🚀 Speed Boost • ⭐ Invincibility • 💎 Double Points • 🍎 Regular Food
             </div>
-            <button onclick="resetGame()">🔄 New Game</button>
-            <button onclick="togglePause()">⏸️ Pause</button>
+            <div style="margin-top: 15px;">
+                <button onclick="resetGame()" style="font-size: 1.1em; padding: 12px 25px;">🔄 NEW GAME</button>
+                <button onclick="togglePause()">⏸️ Pause</button>
+            </div>
         </div>
         
         <div class="game-over" id="gameOver">
@@ -202,7 +204,6 @@
         let particles = [];
         let highScore = localStorage.getItem('snakeHighScore') || 0;
         let audioContext;
-        let gameLoopTimeout;
         
         // Power-up system
         let powerups = {
@@ -216,8 +217,8 @@
         let lastEatTime = 0;
         const comboWindow = 3000; // 3 seconds to maintain combo
         
-        // Game speed (higher = slower)
-        let baseGameSpeed = 200;
+        // Game speed (higher = slower) - Much more fluid now!
+        let baseGameSpeed = 120;
         let currentGameSpeed = baseGameSpeed;
         
         // Food types and their properties
@@ -500,7 +501,7 @@
                 if (food.type === 'speedBoost') {
                     powerups.speedBoost.active = true;
                     powerups.speedBoost.timeLeft = 5000;
-                    currentGameSpeed = Math.max(50, baseGameSpeed * 0.6); // Faster but not too fast
+                    currentGameSpeed = Math.max(40, baseGameSpeed * 0.5); // Much faster but controlled
                     playPowerUpSound();
                     showMessage("🚀 SPEED BOOST ACTIVATED!");
                 } else if (food.type === 'invincible') {
@@ -587,11 +588,7 @@
         
         function gameOver() {
             gameRunning = false;
-            
-            // Clear the game loop
-            if (gameLoopTimeout) {
-                clearTimeout(gameLoopTimeout);
-            }
+            stopGameLoop();
             
             // Screen shake effect
             document.getElementById('gameContainer').classList.add('shake');
@@ -611,21 +608,21 @@
         }
         
         function resetGame() {
+            // Stop current game
+            gameRunning = false;
+            stopGameLoop();
+            
+            // Reset all game state
             snake = [{x: 10, y: 10}];
             dx = 0;
             dy = 0;
             score = 0;
             combo = 0;
-            gameRunning = false;
             gamePaused = false;
             trail = [];
             particles = [];
             currentGameSpeed = baseGameSpeed;
-            
-            // Clear any existing game loop
-            if (gameLoopTimeout) {
-                clearTimeout(gameLoopTimeout);
-            }
+            lastGameUpdate = 0;
             
             // Reset power-ups
             Object.keys(powerups).forEach(key => {
@@ -639,6 +636,9 @@
             generateFood();
             document.getElementById('message').textContent = 'Press SPACE to start! 🚀';
             document.getElementById('gameOver').style.display = 'none';
+            
+            // Draw initial state
+            drawGame();
         }
         
         function togglePause() {
@@ -649,9 +649,6 @@
             
             if (gamePaused) {
                 messageEl.textContent = 'Game Paused ⏸️ Press SPACE to continue';
-                if (gameLoopTimeout) {
-                    clearTimeout(gameLoopTimeout);
-                }
             } else {
                 messageEl.textContent = 'Game Resumed! 🎮';
                 setTimeout(() => {
@@ -659,7 +656,6 @@
                         messageEl.textContent = 'Keep going! 🔥';
                     }
                 }, 1000);
-                gameLoop(); // Restart the game loop
             }
         }
         
@@ -670,11 +666,12 @@
                 if (!gameRunning) {
                     initAudio(); // Initialize audio when game starts
                     gameRunning = true;
+                    lastGameUpdate = Date.now();
                     if (dx === 0 && dy === 0) {
                         dx = 1; // Start moving right
                         showMessage('Go snake go! 🐍💨');
                     }
-                    gameLoop(); // Start the game loop
+                    gameLoop(); // Start the smooth game loop
                 } else {
                     togglePause();
                 }
@@ -699,15 +696,35 @@
             }
         });
         
-        // Game loop - Fixed to only run once
+        // Game loop - Smooth rendering with requestAnimationFrame
+        let lastGameUpdate = 0;
+        let animationId;
+        
         function gameLoop() {
-            if (!gameRunning || gamePaused) return;
+            if (!gameRunning) return;
             
-            moveSnake();
+            const currentTime = Date.now();
+            
+            // Update game logic at controlled intervals
+            if (currentTime - lastGameUpdate >= currentGameSpeed) {
+                if (!gamePaused) {
+                    moveSnake();
+                }
+                lastGameUpdate = currentTime;
+            }
+            
+            // Always render for smooth visuals
             drawGame();
             
             // Schedule next frame
-            gameLoopTimeout = setTimeout(gameLoop, currentGameSpeed);
+            animationId = requestAnimationFrame(gameLoop);
+        }
+        
+        function stopGameLoop() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
         }
         
         // Initialize game
