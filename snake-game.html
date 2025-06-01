@@ -24,6 +24,17 @@
             border-radius: 20px;
             padding: 20px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: transform 0.1s ease;
+        }
+        
+        .shake {
+            animation: shake 0.5s ease-in-out;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
         }
         
         h1 {
@@ -59,6 +70,28 @@
             color: #fff;
             font-size: 1.3em;
             font-weight: bold;
+        }
+        
+        .powerup-status {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 10px 0;
+            color: #fff;
+            font-size: 1.1em;
+            min-height: 30px;
+        }
+        
+        .powerup-active {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            animation: pulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 1; }
         }
         
         .message {
@@ -106,10 +139,20 @@
             text-align: center;
             display: none;
         }
+        
+        .combo-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #fff;
+            font-size: 1.5em;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+        }
     </style>
 </head>
 <body>
-    <div class="game-container">
+    <div class="game-container" id="gameContainer">
         <h1>🐍 AWESOME SNAKE GAME 🐍</h1>
         
         <div class="score-board">
@@ -118,12 +161,21 @@
             <div>Length: <span id="length">1</span></div>
         </div>
         
+        <div class="powerup-status" id="powerupStatus">
+            <!-- Active power-ups will appear here -->
+        </div>
+        
         <div class="message" id="message">Press SPACE to start! 🚀</div>
         
         <canvas id="gameCanvas" width="600" height="400"></canvas>
         
+        <div class="combo-indicator" id="comboIndicator"></div>
+        
         <div class="controls">
             <div>🎮 Use ARROW KEYS to move • SPACE to pause/unpause 🎮</div>
+            <div style="margin-top: 10px; font-size: 0.9em;">
+                🚀 Speed Boost • ⭐ Invincibility • 💎 Double Points • 🍎 Regular Food
+            </div>
             <button onclick="resetGame()">🔄 New Game</button>
             <button onclick="togglePause()">⏸️ Pause</button>
         </div>
@@ -141,16 +193,40 @@
         
         // Game state
         let snake = [{x: 10, y: 10}];
-        let food = {x: 15, y: 15, emoji: '🍎'};
+        let food = {x: 15, y: 15, emoji: '🍎', type: 'normal'};
         let dx = 0, dy = 0;
         let score = 0;
         let gameRunning = false;
         let gamePaused = false;
         let trail = [];
+        let particles = [];
         let highScore = localStorage.getItem('snakeHighScore') || 0;
+        let audioContext;
         
-        // Food emojis for variety and fun!
-        const foodEmojis = ['🍎', '🍊', '🍌', '🍇', '🍓', '🥝', '🍑', '🥭', '🍍', '🥥', '🍒', '🍈', '🫐', '🍋', '🥑'];
+        // Power-up system
+        let powerups = {
+            speedBoost: { active: false, timeLeft: 0 },
+            invincible: { active: false, timeLeft: 0 },
+            doublePoints: { active: false, timeLeft: 0 }
+        };
+        
+        // Combo system
+        let combo = 0;
+        let lastEatTime = 0;
+        const comboWindow = 3000; // 3 seconds to maintain combo
+        
+        // Game speed
+        let baseGameSpeed = 150;
+        let currentGameSpeed = baseGameSpeed;
+        
+        // Food types and their properties
+        const foodTypes = {
+            normal: { emoji: ['🍎', '🍊', '🍌', '🍇', '🍓', '🥝', '🍑', '🥭', '🍍', '🥥'], chance: 0.7, points: 10 },
+            speedBoost: { emoji: ['🚀'], chance: 0.1, points: 15 },
+            invincible: { emoji: ['⭐'], chance: 0.1, points: 15 },
+            doublePoints: { emoji: ['💎'], chance: 0.1, points: 20 }
+        };
+        
         const eatMessages = [
             "Nom nom nom! 😋", "Delicious! 🤤", "Yummy! 😍", "Tasty! 👌", 
             "Mmmm... 😋", "So good! 🔥", "Amazing! ✨", "Perfect! 💯",
@@ -161,6 +237,149 @@
         
         // Grid size
         const gridSize = 20;
+        
+        // Initialize audio
+        function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {
+                console.log('Web Audio API not supported');
+            }
+        }
+        
+        // Play crunch sound effect
+        function playEatSound() {
+            if (!audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            // Quick frequency sweep for "crunch" effect
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.1);
+            
+            // Volume envelope
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+        }
+        
+        // Play power-up sound
+        function playPowerUpSound() {
+            if (!audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(523, audioContext.currentTime); // C note
+            oscillator.frequency.exponentialRampToValueAtTime(784, audioContext.currentTime + 0.2); // G note
+            
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+        }
+        
+        // Create particles
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 8; i++) {
+                particles.push({
+                    x: x * gridSize + gridSize / 2,
+                    y: y * gridSize + gridSize / 2,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    life: 30,
+                    maxLife: 30,
+                    color: color || `hsl(${Math.random() * 360}, 70%, 60%)`
+                });
+            }
+        }
+        
+        // Update particles
+        function updateParticles() {
+            particles = particles.filter(particle => {
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                particle.life--;
+                return particle.life > 0;
+            });
+        }
+        
+        // Draw particles
+        function drawParticles() {
+            particles.forEach(particle => {
+                const alpha = particle.life / particle.maxLife;
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = particle.color;
+                ctx.fillRect(particle.x - 2, particle.y - 2, 4, 4);
+                ctx.restore();
+            });
+        }
+        
+        // Update power-ups
+        function updatePowerups() {
+            Object.keys(powerups).forEach(key => {
+                if (powerups[key].active) {
+                    powerups[key].timeLeft -= currentGameSpeed;
+                    if (powerups[key].timeLeft <= 0) {
+                        powerups[key].active = false;
+                        if (key === 'speedBoost') {
+                            currentGameSpeed = baseGameSpeed;
+                        }
+                    }
+                }
+            });
+            updatePowerupDisplay();
+        }
+        
+        // Update power-up display
+        function updatePowerupDisplay() {
+            const statusDiv = document.getElementById('powerupStatus');
+            statusDiv.innerHTML = '';
+            
+            if (powerups.speedBoost.active) {
+                const div = document.createElement('div');
+                div.className = 'powerup-active';
+                div.textContent = `🚀 Speed ${Math.ceil(powerups.speedBoost.timeLeft / 1000)}s`;
+                statusDiv.appendChild(div);
+            }
+            
+            if (powerups.invincible.active) {
+                const div = document.createElement('div');
+                div.className = 'powerup-active';
+                div.textContent = `⭐ Invincible ${Math.ceil(powerups.invincible.timeLeft / 1000)}s`;
+                statusDiv.appendChild(div);
+            }
+            
+            if (powerups.doublePoints.active) {
+                const div = document.createElement('div');
+                div.className = 'powerup-active';
+                div.textContent = `💎 Double Points ${Math.ceil(powerups.doublePoints.timeLeft / 1000)}s`;
+                statusDiv.appendChild(div);
+            }
+        }
+        
+        // Update combo display
+        function updateComboDisplay() {
+            const comboDiv = document.getElementById('comboIndicator');
+            if (combo > 1) {
+                comboDiv.textContent = `🔥 ${combo}x COMBO!`;
+                comboDiv.style.display = 'block';
+            } else {
+                comboDiv.style.display = 'none';
+            }
+        }
         
         function drawGame() {
             // Clear canvas with animated background
@@ -180,14 +399,20 @@
             
             // Draw snake with rainbow effect
             snake.forEach((segment, index) => {
-                const hue = (index * 30 + Date.now() / 50) % 360;
+                let hue = (index * 30 + Date.now() / 50) % 360;
+                
+                // Special effects for power-ups
+                if (powerups.invincible.active) {
+                    hue = (Date.now() / 20) % 360; // Rapidly changing colors
+                }
+                
                 ctx.fillStyle = `hsl(${hue}, 70%, 60%)`;
                 ctx.fillRect(segment.x * gridSize, segment.y * gridSize, gridSize - 2, gridSize - 2);
                 
                 // Add glow effect to head
                 if (index === 0) {
                     ctx.shadowColor = `hsl(${hue}, 70%, 60%)`;
-                    ctx.shadowBlur = 15;
+                    ctx.shadowBlur = powerups.invincible.active ? 25 : 15;
                     ctx.fillRect(segment.x * gridSize, segment.y * gridSize, gridSize - 2, gridSize - 2);
                     ctx.shadowBlur = 0;
                 }
@@ -198,6 +423,12 @@
             const foodSize = gridSize * pulseScale;
             const offset = (gridSize - foodSize) / 2;
             
+            // Special glow for power-up foods
+            if (food.type !== 'normal') {
+                ctx.shadowColor = '#FFD700';
+                ctx.shadowBlur = 15;
+            }
+            
             ctx.font = `${foodSize}px Arial`;
             ctx.textAlign = 'center';
             ctx.fillText(
@@ -205,6 +436,10 @@
                 food.x * gridSize + gridSize / 2, 
                 food.y * gridSize + gridSize / 2 + foodSize / 3
             );
+            ctx.shadowBlur = 0;
+            
+            // Draw particles
+            drawParticles();
         }
         
         function moveSnake() {
@@ -216,15 +451,23 @@
             trail.push({...snake[0]});
             if (trail.length > 10) trail.shift();
             
-            // Check wall collision
-            if (head.x < 0 || head.x >= canvas.width / gridSize || 
-                head.y < 0 || head.y >= canvas.height / gridSize) {
-                gameOver();
-                return;
+            // Check wall collision (unless invincible)
+            if (!powerups.invincible.active) {
+                if (head.x < 0 || head.x >= canvas.width / gridSize || 
+                    head.y < 0 || head.y >= canvas.height / gridSize) {
+                    gameOver();
+                    return;
+                }
+            } else {
+                // Wrap around when invincible
+                if (head.x < 0) head.x = Math.floor(canvas.width / gridSize) - 1;
+                if (head.x >= canvas.width / gridSize) head.x = 0;
+                if (head.y < 0) head.y = Math.floor(canvas.height / gridSize) - 1;
+                if (head.y >= canvas.height / gridSize) head.y = 0;
             }
             
-            // Check self collision
-            if (snake.some(segment => segment.x === head.x && segment.y === head.y)) {
+            // Check self collision (unless invincible)
+            if (!powerups.invincible.active && snake.some(segment => segment.x === head.x && segment.y === head.y)) {
                 gameOver();
                 return;
             }
@@ -233,14 +476,63 @@
             
             // Check food collision
             if (head.x === food.x && head.y === food.y) {
-                score += 10;
+                const currentTime = Date.now();
+                
+                // Update combo
+                if (currentTime - lastEatTime < comboWindow) {
+                    combo++;
+                } else {
+                    combo = 1;
+                }
+                lastEatTime = currentTime;
+                updateComboDisplay();
+                
+                // Calculate points
+                let basePoints = foodTypes[food.type].points;
+                let comboBonus = Math.max(0, (combo - 1) * 5);
+                let powerupMultiplier = powerups.doublePoints.active ? 2 : 1;
+                let totalPoints = (basePoints + comboBonus) * powerupMultiplier;
+                
+                score += totalPoints;
                 updateScore();
-                showMessage(eatMessages[Math.floor(Math.random() * eatMessages.length)]);
+                
+                // Apply power-up effects
+                if (food.type === 'speedBoost') {
+                    powerups.speedBoost.active = true;
+                    powerups.speedBoost.timeLeft = 5000;
+                    currentGameSpeed = baseGameSpeed * 0.7; // 30% faster
+                    playPowerUpSound();
+                    showMessage("🚀 SPEED BOOST ACTIVATED!");
+                } else if (food.type === 'invincible') {
+                    powerups.invincible.active = true;
+                    powerups.invincible.timeLeft = 5000;
+                    playPowerUpSound();
+                    showMessage("⭐ INVINCIBILITY ACTIVATED!");
+                } else if (food.type === 'doublePoints') {
+                    powerups.doublePoints.active = true;
+                    powerups.doublePoints.timeLeft = 8000;
+                    playPowerUpSound();
+                    showMessage("💎 DOUBLE POINTS ACTIVATED!");
+                } else {
+                    playEatSound();
+                    if (combo > 1) {
+                        showMessage(`${eatMessages[Math.floor(Math.random() * eatMessages.length)]} ${combo}x COMBO! +${totalPoints} pts`);
+                    } else {
+                        showMessage(eatMessages[Math.floor(Math.random() * eatMessages.length)]);
+                    }
+                }
+                
+                // Create particles
+                createParticles(food.x, food.y, food.type === 'normal' ? null : '#FFD700');
+                
                 generateFood();
-                playEatSound(); // Sound effect placeholder
             } else {
                 snake.pop();
             }
+            
+            // Update power-ups
+            updatePowerups();
+            updateParticles();
         }
         
         function generateFood() {
@@ -249,7 +541,21 @@
                 food.y = Math.floor(Math.random() * (canvas.height / gridSize));
             } while (snake.some(segment => segment.x === food.x && segment.y === food.y));
             
-            food.emoji = foodEmojis[Math.floor(Math.random() * foodEmojis.length)];
+            // Determine food type
+            const rand = Math.random();
+            if (rand < foodTypes.normal.chance) {
+                food.type = 'normal';
+                food.emoji = foodTypes.normal.emoji[Math.floor(Math.random() * foodTypes.normal.emoji.length)];
+            } else if (rand < foodTypes.normal.chance + foodTypes.speedBoost.chance) {
+                food.type = 'speedBoost';
+                food.emoji = foodTypes.speedBoost.emoji[0];
+            } else if (rand < foodTypes.normal.chance + foodTypes.speedBoost.chance + foodTypes.invincible.chance) {
+                food.type = 'invincible';
+                food.emoji = foodTypes.invincible.emoji[0];
+            } else {
+                food.type = 'doublePoints';
+                food.emoji = foodTypes.doublePoints.emoji[0];
+            }
         }
         
         function updateScore() {
@@ -281,7 +587,14 @@
         
         function gameOver() {
             gameRunning = false;
-            document.getElementById('finalScore').textContent = `Final Score: ${score} | Length: ${snake.length}`;
+            
+            // Screen shake effect
+            document.getElementById('gameContainer').classList.add('shake');
+            setTimeout(() => {
+                document.getElementById('gameContainer').classList.remove('shake');
+            }, 500);
+            
+            document.getElementById('finalScore').textContent = `Final Score: ${score} | Length: ${snake.length} | Best Combo: ${combo}x`;
             document.getElementById('gameOver').style.display = 'block';
             
             // Fun game over messages
@@ -297,10 +610,22 @@
             dx = 0;
             dy = 0;
             score = 0;
+            combo = 0;
             gameRunning = false;
             gamePaused = false;
             trail = [];
+            particles = [];
+            currentGameSpeed = baseGameSpeed;
+            
+            // Reset power-ups
+            Object.keys(powerups).forEach(key => {
+                powerups[key].active = false;
+                powerups[key].timeLeft = 0;
+            });
+            
             updateScore();
+            updatePowerupDisplay();
+            updateComboDisplay();
             generateFood();
             document.getElementById('message').textContent = 'Press SPACE to start! 🚀';
             document.getElementById('gameOver').style.display = 'none';
@@ -324,17 +649,12 @@
             }
         }
         
-        function playEatSound() {
-            // In a real implementation, you'd play actual sounds here
-            // For now, we'll just log it
-            console.log('🔊 *CRUNCH* sound effect!');
-        }
-        
         // Keyboard controls
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space') {
                 e.preventDefault();
                 if (!gameRunning) {
+                    initAudio(); // Initialize audio when game starts
                     gameRunning = true;
                     if (dx === 0 && dy === 0) {
                         dx = 1; // Start moving right
@@ -372,8 +692,17 @@
         
         // Initialize game
         generateFood();
-        setInterval(gameLoop, 150); // Adjust speed here (lower = faster)
-        drawGame();
+        setInterval(gameLoop, () => currentGameSpeed); // Dynamic speed
+        
+        // Use a more responsive game loop
+        function dynamicGameLoop() {
+            moveSnake();
+            drawGame();
+            setTimeout(dynamicGameLoop, currentGameSpeed);
+        }
+        
+        // Start the dynamic game loop
+        dynamicGameLoop();
     </script>
 </body>
 </html>
