@@ -28,7 +28,7 @@ This isn't your ordinary snake game! Featuring rainbow trails, emoji food, and m
 ### Or Serve Locally
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/pull-request-demo.git
+git clone https://github.com/Myrmecology/pull-request-demo.git
 cd pull-request-demo
 
 # Serve with Python (optional)
@@ -82,8 +82,7 @@ python -m http.server 8000
 pull-request-demo/
 │
 ├── snake-game.html    # Complete game in one file!
-├── README.md          # You're reading this
-└── .gitignore         # Standard ignores
+└── README.md          # You're reading this
 ```
 
 ## 🚀 Why This Game?
